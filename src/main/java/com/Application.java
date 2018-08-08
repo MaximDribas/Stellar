@@ -20,19 +20,26 @@ public class Application {
         Network.useTestNetwork();
 
         KeyPair keyPair1 = KeyPair.random();
-        AccountResponse sourceAccount = createAccount(keyPair1);
-        KeyPair keyPair2 = KeyPair.random();
-        AccountResponse destinationAccount = createAccount(keyPair2);
+        AccountResponse account1 = createAccount(keyPair1);
 
-        checkBalance(sourceAccount);
-        checkBalance(destinationAccount);
-        System.out.println(" + + + + + + + + + + + + + ");
+        System.out.println("\n * * * * * * * * * * * * * * * * * * * * * * \n");
+
+        KeyPair keyPair2 = KeyPair.random();
+        AccountResponse account2 = createAccount(keyPair2);
+
+        System.out.println("\n * * * * * * * * * * * * * * * * * * * * * * \n");
+
+        checkBalance(account1);
+        checkBalance(account2);
+
+        System.out.println("\n * * * * * * * * * * * * * * * * * * * * * * \n");
 
         buildTransaction(keyPair1, keyPair2);
 
-        System.out.println(" + + + + + + + + + + + + + ");
-        checkBalance(sourceAccount);
-        checkBalance(destinationAccount);
+        System.out.println("\n * * * * * * * * * * * * * * * * * * * * * * \n");
+
+        checkBalance(account1);
+        checkBalance(account2);
     }
 
     private static void buildTransaction(KeyPair keyPair1, KeyPair keyPair2) throws IOException {
@@ -41,52 +48,32 @@ public class Application {
         KeyPair source = KeyPair.fromSecretSeed(keyPair1.getSecretSeed());
         KeyPair destination = KeyPair.fromAccountId(keyPair2.getAccountId());
 
-        // First, check to make sure that the destination account exists.
-        // You could skip this, but if the account does not exist, you will be charged
-        // the transaction fee when the transaction fails.
-
-        // It will throw HttpResponseException if account does not exist or there was another error.
         server.accounts().account(destination);
 
-        // If there was no error, load up-to-date information on your account.
         AccountResponse sourceAccount = server.accounts().account(source);
 
-        // Start building the transaction.
         Transaction transaction = new Transaction.Builder(sourceAccount)
                 .addOperation(new PaymentOperation.Builder(destination, new AssetTypeNative(), "10").build())
-                // A memo allows you to add your own metadata to a transaction. It's
-                // optional and does not affect how Stellar treats the transaction.
                 .addMemo(Memo.text("Memo: Test Transaction"))
                 .build();
-        // Sign the transaction to prove you are actually the person sending it.
         transaction.sign(source);
 
-        // And finally, send it off to Stellar!
         try {
-            System.out.println(transaction.getMemo().toString());
             SubmitTransactionResponse response = server.submitTransaction(transaction);
-            System.out.println("Success!");
+            System.out.println("!!!SUCCESS transaction");
             System.out.println(response);
         } catch (Exception e) {
             System.out.println("Something went wrong!");
             System.out.println(e.getMessage());
-            // If the result is unknown (no response body, timeout etc.) we simply resubmit
-            // already built transaction:
-            // SubmitTransactionResponse response = server.submitTransaction(transaction);
         }
 
     }
 
     private static AccountResponse createAccount(KeyPair keyPair) throws IOException {
-        //KeyPair keyPair = KeyPair.random();
-
-
-        //Create a test account
         String friendbotUrl = String.format("https://friendbot.stellar.org/?addr=%s", keyPair.getAccountId());
         InputStream response = new URL(friendbotUrl).openStream();
         String body = new Scanner(response, "UTF-8").useDelimiter("\\A").next();
-        System.out.println("SUCCESS! You have a new account :)\n" + body);
-
+        System.out.println("!!!SUCCESS new account\n" + body);
         //Getting the account’s details.
         Server server = new Server("https://horizon-testnet.stellar.org");
         AccountResponse account = server.accounts().account(keyPair);
@@ -95,7 +82,7 @@ public class Application {
     }
 
     private static void checkBalance(AccountResponse account) {
-        System.out.println("Balances for account " + account.getKeypair().getAccountId());
+        System.out.println("!!!BALANCES for account " + account.getKeypair().getAccountId());
         for (AccountResponse.Balance balance : account.getBalances()) {
             System.out.println(String.format(
                     "Type: %s, Code: %s, Balance: %s",

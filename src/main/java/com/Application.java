@@ -1,17 +1,17 @@
 package com;
 
 import org.stellar.sdk.Asset;
-import org.stellar.sdk.AssetTypeCreditAlphaNum12;
 import org.stellar.sdk.AssetTypeNative;
 import org.stellar.sdk.ChangeTrustOperation;
 import org.stellar.sdk.KeyPair;
+import org.stellar.sdk.ManageOfferOperation;
 import org.stellar.sdk.Memo;
 import org.stellar.sdk.Network;
 import org.stellar.sdk.PaymentOperation;
 import org.stellar.sdk.Server;
+import org.stellar.sdk.SetOptionsOperation;
 import org.stellar.sdk.responses.AccountResponse;
 import org.stellar.sdk.Transaction;
-import org.stellar.sdk.responses.SubmitTransactionResponse;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -74,34 +74,23 @@ public class Application {
 
     private static void sendLumens(BufferedReader reader, Server server) throws IOException {
         System.out.println("Enter secret seed of source account:");
-        String sourceSecretSeed = reader.readLine();
+        KeyPair source = KeyPair.fromSecretSeed(reader.readLine());
         System.out.println("Enter account id of destination account:");
-        String destinationId = reader.readLine();
+        KeyPair destination = KeyPair.fromAccountId(reader.readLine());
         System.out.println("Enter sum:");
         String sum = reader.readLine();
         System.out.println("Enter memo info:");
         String memoInfo = reader.readLine();
 
-        KeyPair source = KeyPair.fromSecretSeed(sourceSecretSeed);
-        KeyPair destination = KeyPair.fromAccountId(destinationId);
-
         server.accounts().account(destination);
 
         AccountResponse sourceAccount = server.accounts().account(source);
-
         Transaction transaction = new Transaction.Builder(sourceAccount)
                 .addOperation(new PaymentOperation.Builder(destination, new AssetTypeNative(), sum).build())
                 .addMemo(Memo.text(memoInfo))
                 .build();
         transaction.sign(source);
-
-        try {
-            server.submitTransaction(transaction);
-            System.out.println("SUCCESS transaction!");
-        } catch (Exception e) {
-            System.out.println("Something went wrong!");
-            System.out.println(e.getMessage());
-        }
+        server.submitTransaction(transaction);
     }
 
     private static void createAndSendCustomAsset(BufferedReader reader, Server server) throws IOException {
@@ -131,6 +120,19 @@ public class Application {
                 .build();
         transSendAsset.sign(issuingKeys);
         server.submitTransaction(transSendAsset);
+
+        ManageOfferOperation firstOffer = new ManageOfferOperation.Builder(new AssetTypeNative(),
+                asset, "10", "1")
+                .setSourceAccount(issuingKeys)
+                .setOfferId(0)
+                .build();
+
+        Transaction transDistributedAsset = new Transaction.Builder(issuingAccount)
+                .addOperation(firstOffer)
+                .build();
+        transDistributedAsset.sign(issuingKeys);
+        server.submitTransaction(transDistributedAsset);
+
     }
 
     private static void createAccount(Server server) throws IOException {
@@ -165,5 +167,4 @@ public class Application {
             printAccountInfo(entry.getValue(), server);
         }
     }
-
 }

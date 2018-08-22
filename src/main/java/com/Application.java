@@ -9,7 +9,6 @@ import org.stellar.sdk.Memo;
 import org.stellar.sdk.Network;
 import org.stellar.sdk.PaymentOperation;
 import org.stellar.sdk.Server;
-import org.stellar.sdk.SetOptionsOperation;
 import org.stellar.sdk.responses.AccountResponse;
 import org.stellar.sdk.Transaction;
 
@@ -36,6 +35,7 @@ public class Application {
                 menu(reader, server);
             } catch (Exception e) {
                 System.out.println("Error!");
+                System.out.println(e.getMessage());
             }
         }
     }
@@ -82,7 +82,7 @@ public class Application {
         System.out.println("Enter memo info:");
         String memoInfo = reader.readLine();
 
-        server.accounts().account(destination);
+        //server.accounts().account(destination);
 
         AccountResponse sourceAccount = server.accounts().account(source);
         Transaction transaction = new Transaction.Builder(sourceAccount)
@@ -94,10 +94,18 @@ public class Application {
     }
 
     private static void createAndSendCustomAsset(BufferedReader reader, Server server) throws IOException {
-        System.out.println("Enter secret seed of issuing account:");
+        System.out.println("Enter secret seed of ISSUING account:");
         KeyPair issuingKeys = KeyPair.fromSecretSeed(reader.readLine());
-        System.out.println("Enter secret seed of receiving account:");
+        AccountResponse issuingAccount = server.accounts().account(issuingKeys);
+
+        System.out.println("Enter secret seed of DISTRIBUTION account:");
+        KeyPair distributionKeys = KeyPair.fromSecretSeed(reader.readLine());
+        AccountResponse distributionAccount = server.accounts().account(distributionKeys);
+
+        System.out.println("Enter secret seed of RECEIVING account:");
         KeyPair receivingKeys = KeyPair.fromSecretSeed(reader.readLine());
+        AccountResponse receivingAccount = server.accounts().account(receivingKeys);
+
         System.out.println("Enter asset name:");
         String assetName = reader.readLine();
         System.out.println("Enter trust limit:");
@@ -105,34 +113,43 @@ public class Application {
         System.out.println("Enter sending sum:");
         String sendingSum = reader.readLine();
 
+        //Asset creation.
         Asset asset = Asset.createNonNativeAsset(assetName, issuingKeys);
 
-        AccountResponse receivingAccount = server.accounts().account(receivingKeys);
-        Transaction transAllowAsset = new Transaction.Builder(receivingAccount)
+        //Trust creation.
+        Transaction trustAsset = new Transaction.Builder(distributionAccount)
                 .addOperation(new ChangeTrustOperation.Builder(asset, trustLimit).build())
                 .build();
-        transAllowAsset.sign(receivingKeys);
-        server.submitTransaction(transAllowAsset);
+        trustAsset.sign(distributionKeys);
+        server.submitTransaction(trustAsset);
 
-        AccountResponse issuingAccount = server.accounts().account(issuingKeys);
-        Transaction transSendAsset = new Transaction.Builder(issuingAccount)
-                .addOperation(new PaymentOperation.Builder(receivingKeys, asset, sendingSum).build())
+        //Send asset (issuing-distributor).
+        Transaction sendAsset_issuingToDistributor = new Transaction.Builder(issuingAccount)
+                .addOperation(new PaymentOperation.Builder(distributionKeys, asset, sendingSum).build())
                 .build();
-        transSendAsset.sign(issuingKeys);
-        server.submitTransaction(transSendAsset);
+        sendAsset_issuingToDistributor.sign(issuingKeys);
+        server.submitTransaction(sendAsset_issuingToDistributor);
 
+        //Offer creation.
         ManageOfferOperation firstOffer = new ManageOfferOperation.Builder(new AssetTypeNative(),
-                asset, "10", "1")
+                asset, "1", "1")
                 .setSourceAccount(issuingKeys)
                 .setOfferId(0)
                 .build();
 
-        Transaction transDistributedAsset = new Transaction.Builder(issuingAccount)
+        //Offer to server.
+        Transaction transDistributedAsset = new Transaction.Builder(distributionAccount)
                 .addOperation(firstOffer)
                 .build();
-        transDistributedAsset.sign(issuingKeys);
+        transDistributedAsset.sign(distributionKeys);
         server.submitTransaction(transDistributedAsset);
 
+        //Payment creation (distributor-receiver)
+        Transaction sendAsset_distributorToReceiver = new Transaction.Builder(distributionAccount)
+                .addOperation(new PaymentOperation.Builder(receivingKeys, asset, "1").build())
+                .build();
+        sendAsset_distributorToReceiver.sign(distributionKeys);
+        server.submitTransaction(sendAsset_distributorToReceiver);
     }
 
     private static void createAccount(Server server) throws IOException {

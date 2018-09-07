@@ -44,7 +44,7 @@ public class Application {
 
     private static void menu(BufferedReader reader, Server server) throws Exception {
         System.out.println("\nClick: 1 - create ACCOUNT Friendbot, 2 - create ACCOUNT Another Account, 3 - print account INFO," +
-                " 4 - change TRUST,\n 5 - send ASSET, 6 - send SSC operation, 7 - SSC crowdfunding, 8 - issuing Custom Assets, " +
+                " 4 - change TRUST,\n 5 - send ASSET, 6 - , 7 - SSC crowdfunding, 8 - issuing Custom Assets, " +
                 "9 - create OFFER, 0 - exit");
         int number = Integer.parseInt(reader.readLine());
         switch (number) {
@@ -68,7 +68,6 @@ public class Application {
                 sendAsset(reader, server);
                 break;
             case 6:
-                createSendSSCOperation(reader, server);
                 break;
             case 7:
                 crowdfundingSSC(reader, server);
@@ -116,42 +115,22 @@ public class Application {
         printAccountInfo(new String(receivingKeys.getSecretSeed()), server);
     }
 
-    private static void crowdfundingSSC(BufferedReader reader, Server server) throws IOException {
-        System.out.println(" * * * CROWDFUNDING SSC * * * ");
-
-        System.out.println("Enter secret seed of party A account:");
-        KeyPair keyPairA = KeyPair.fromSecretSeed(reader.readLine());
-        AccountResponse accountA = server.accounts().account(keyPairA);
-        printAccountInfo(new String(keyPairA.getSecretSeed()), server);
-        long offerIdA = 0;
-
-        System.out.println("Enter secret seed of party B account:");
-        KeyPair keyPairB = KeyPair.fromSecretSeed(reader.readLine());
-        AccountResponse accountB = server.accounts().account(keyPairB);
-        printAccountInfo(new String(keyPairB.getSecretSeed()), server);
-        long offerIdB = 0;
-
-        System.out.println("Enter secret seed of TARGET account:");
-        KeyPair targetKeyPair = KeyPair.fromSecretSeed(reader.readLine());
-        AccountResponse targetAccount = server.accounts().account(targetKeyPair);
-        printAccountInfo(new String(targetKeyPair.getSecretSeed()), server);
-        long offerIdTarget = 0;
-
-        //Transaction 1: Create the Holding Account
-        KeyPair holdingKeyPair = KeyPair.random();
-
+    private static KeyPair createHoldingAccount(Server server, AccountResponse accountA, KeyPair keyPairA) throws IOException {
+        System.out.println("\n * * * Transaction 1: Create the Holding Account * * * Account A SN: " + accountA.getSequenceNumber());
+        KeyPair keyPair = KeyPair.random();
         Transaction createHoldingAccount = new Transaction.Builder(accountA)
-                .addOperation(new CreateAccountOperation.Builder(holdingKeyPair, "100").build())
+                .addOperation(new CreateAccountOperation.Builder(keyPair, "500").build())
                 .build();
         createHoldingAccount.sign(keyPairA);
-        System.out.println("Created the Holding account: " + server.submitTransaction(createHoldingAccount).isSuccess());
-        printAccountInfo(new String(holdingKeyPair.getSecretSeed()), server);
+        System.out.println("SUCCESS: " + server.submitTransaction(createHoldingAccount).isSuccess());
+        printAccountInfo(new String(keyPair.getSecretSeed()), server);
+        System.out.println("SN - M: " + createHoldingAccount.getSequenceNumber());
+        return keyPair;
+    }
 
-        AccountResponse holdingAccount = server.accounts().account(holdingKeyPair);
-        long offerIdHolding = 0;
-
-        //Transaction 2: Add signers
-        Transaction transactionSigners = new Transaction.Builder(holdingAccount)
+    private static void addSigners(Server server, AccountResponse accountH, KeyPair keyPairH, KeyPair keyPairA, KeyPair keyPairB) throws IOException {
+        System.out.println("\n * * * Transaction 2: Add signers * * * Account H SN: " + accountH.getSequenceNumber());
+        Transaction transactionSigners = new Transaction.Builder(accountH)
                 .addOperation(new SetOptionsOperation.Builder()
                         .setSigner(keyPairA.getXdrSignerKey(), 1).build())
                 .addOperation(new SetOptionsOperation.Builder()
@@ -163,149 +142,238 @@ public class Application {
                         .setHighThreshold(2)
                         .build())
                 .build();
-        System.out.println("Operations length: " + transactionSigners.getOperations().length);
-        System.out.println("Before sign Signatures size: " + transactionSigners.getSignatures().size());
-        transactionSigners.sign(holdingKeyPair);
-        System.out.println("After sign Signatures size: " + transactionSigners.getSignatures().size());
-        System.out.println("Signers transaction submit: " + server.submitTransaction(transactionSigners).isSuccess());
+        transactionSigners.sign(keyPairH);
+        System.out.println("SUCCESS signer: " + server.submitTransaction(transactionSigners).isSuccess());
+        System.out.println("SN - N: " + transactionSigners.getSequenceNumber());
+    }
 
-        //After Transaction 2, the holding account should be funded with the tokens to be used for the crowdfunding
+    private static Asset issuingAsset(String assetName, Server server, KeyPair keyPairA, KeyPair keyPairB, KeyPair keyPairH, String amountV) throws IOException {
+        //??After Transaction 2, the holding account should be funded with the tokens to be used for the crowdfunding
         //campaign, as well as with enough lumens to cover the transaction fees for all of the following transactions.
-        String assetName = "crowdAsset15";
-        Asset asset = Asset.createNonNativeAsset(assetName, keyPairA);
-        System.out.println(" * * * Asset created: " + assetName);
-        String amountV = "10";
-        String amountA = "4";
-        String amountB = "4";
+        System.out.println("\n * * * Transaction 2+ Holding account should be funded with the tokens * * * ");
+        AccountResponse accountA = server.accounts().account(keyPairA);
+        AccountResponse accountB = server.accounts().account(keyPairB);
+        AccountResponse accountH = server.accounts().account(keyPairH);
 
-        Transaction trustTransaction = new Transaction.Builder(holdingAccount)
+        Asset asset = Asset.createNonNativeAsset(assetName, keyPairA);
+        System.out.println("Asset created: " + assetName);
+
+        Transaction trustTransaction = new Transaction.Builder(accountH)
                 .addOperation(new ChangeTrustOperation.Builder(asset, amountV).build())
                 .build();
         trustTransaction.sign(keyPairA);
         trustTransaction.sign(keyPairB);
-        System.out.println("Trust transaction: " + server.submitTransaction(trustTransaction).isSuccess());
-        printAccountInfo(new String(holdingKeyPair.getSecretSeed()), server);
+        System.out.println("SUCCESS trust: " + server.submitTransaction(trustTransaction).isSuccess() +
+                "; SN - ?: " + trustTransaction.getSequenceNumber());
+        printAccountInfo(new String(keyPairH.getSecretSeed()), server);
 
         Transaction issuingAsset = new Transaction.Builder(accountA)
-                .addOperation(new PaymentOperation.Builder(holdingKeyPair, asset, amountV).build())
+                .addOperation(new PaymentOperation.Builder(keyPairH, asset, amountV).build())
                 .build();
         issuingAsset.sign(keyPairA);
-        System.out.println("Payment/Issuing submit: " + server.submitTransaction(issuingAsset).isSuccess());
-        printAccountInfo(new String(holdingKeyPair.getSecretSeed()), server);
+        System.out.println("SUCCESS payment: " + server.submitTransaction(issuingAsset).isSuccess() +
+                "; SN - ?: " + issuingAsset.getSequenceNumber());
+        printAccountInfo(new String(keyPairH.getSecretSeed()), server);
+        return asset;
+    }
 
-        //Transaction 3: Begin Crowdfunding
+    private static void offerSell(Server server, KeyPair keyPairH, KeyPair keyPairA, KeyPair keyPairB, Asset asset, String amountV) throws IOException, InterruptedException {
+        System.out.println("\n * * * Transaction 3: Begin Crowdfunding - sell offer * * * \n" +
+                "sleep 3 sec");
+        Thread.sleep(3000);
+        AccountResponse accountH = server.accounts().account(keyPairH);
+        System.out.println("Account H SN: " + accountH.getSequenceNumber());
         ManageOfferOperation offerOperation = new ManageOfferOperation.Builder(asset, new AssetTypeNative(), amountV, "1")
-                .setOfferId(offerIdHolding)
+                .setOfferId(0)
                 .build();
-        Transaction offerTransaction = new Transaction.Builder(holdingAccount)
+        Transaction offerTransaction = new Transaction.Builder(accountH)
                 .addOperation(offerOperation)
                 .build();
         offerTransaction.sign(keyPairA);
         offerTransaction.sign(keyPairB);
-        offerIdHolding++;
-        System.out.println("Offer submit: " + server.submitTransaction(offerTransaction).isSuccess() +
-                "\nofferIdHolding: " + offerOperation.getOfferId());
-        printAccountInfo(new String(holdingKeyPair.getSecretSeed()), server);
+        System.out.println("SUCCESS sell offer: " + server.submitTransaction(offerTransaction).isSuccess());
+        printAccountInfo(new String(keyPairH.getSecretSeed()), server);
+        System.out.println("SN - N+1: " + offerTransaction.getSequenceNumber());
+    }
 
-        //Transaction 4: Crowdfunding Succeeds
+    private static void sendInvestment(Server server, Asset asset, KeyPair keyPairA, KeyPair keyPairB, String amountA, String amountB) throws IOException {
+        AccountResponse accountA = server.accounts().account(keyPairA);
+        AccountResponse accountB = server.accounts().account(keyPairB);
 
-        Transaction sendAssetV = new Transaction.Builder(holdingAccount)
-                .addOperation(new PaymentOperation.Builder(targetKeyPair, new AssetTypeNative(), amountV).build())
-                .build();
-        sendAssetV.sign(keyPairA);
-        sendAssetV.sign(keyPairB);
-
-        //Transaction 5: Crowdfunding Fails
-        System.out.println(" * * * Crowdfunding Fails * * * ");
-        //offerCancelTransaction
-        ManageOfferOperation offerCancelOperation = new ManageOfferOperation.Builder(asset, new AssetTypeNative(), "0", "1")
-                .setOfferId(offerOperation.getOfferId())
-                .build();
-        Transaction offerCancelTransaction = new Transaction.Builder(holdingAccount)
-                .addOperation(offerCancelOperation)
-                .build();
-        offerCancelTransaction.sign(keyPairA);
-        offerCancelTransaction.sign(keyPairB);
-        System.out.println("offerIdHolding: " + offerCancelOperation.getOfferId());
-
-        //Transaction 5+: offerReturnTransaction
-        ManageOfferOperation offerReturnAOperation = new ManageOfferOperation.Builder(new AssetTypeNative(), asset, amountA, "1")
-                .setOfferId(offerIdHolding)
-                .build();
-        Transaction offerReturnA = new Transaction.Builder(holdingAccount)
-                .addOperation(offerReturnAOperation)
-                .build();
-        offerReturnA.sign(keyPairA);
-        offerReturnA.sign(keyPairB);
-        offerIdHolding++;
-        System.out.println("offerReturnAOperation ID: " + offerReturnAOperation.getOfferId());
-
-
-        ManageOfferOperation offerReturnBOperation = new ManageOfferOperation.Builder(new AssetTypeNative(), asset, amountB, "1")
-                .setOfferId(offerIdHolding)
-                .build();
-        Transaction offerReturnB = new Transaction.Builder(holdingAccount)
-                .addOperation(offerReturnBOperation)
-                .build();
-        offerReturnB.sign(keyPairA);
-        offerReturnB.sign(keyPairB);
-        offerIdHolding++;
-        System.out.println("offerReturnBOperation ID: " + offerReturnBOperation.getOfferId());
-
-        //Transaction 0: Send investment
-        System.out.println(" * * * trustTransactionA * * * ");
-        Transaction trustTransactionA = new Transaction.Builder(accountA)
-                .addOperation(new ChangeTrustOperation.Builder(asset, amountA).build())
-                .build();
-        trustTransactionA.sign(keyPairA);
-        System.out.println("Trust transaction A: " + server.submitTransaction(trustTransactionA).isSuccess());
-        printAccountInfo(new String(keyPairA.getSecretSeed()), server);
-
-        System.out.println(" * * * sendInvestmentA * * * ");
+        System.out.println(" * * * Send investment A");
         Transaction sendInvestmentA = new Transaction.Builder(accountA)
                 .addOperation(new ManageOfferOperation.Builder(new AssetTypeNative(), asset, amountA, "1")
                         .setOfferId(0)
                         .build())
                 .build();
         sendInvestmentA.sign(keyPairA);
-        System.out.println("Send investment A submit: " + server.submitTransaction(sendInvestmentA).isSuccess());
+        System.out.println("Send investment A submit is SUCCESS: " + server.submitTransaction(sendInvestmentA).isSuccess());
         printAccountInfo(new String(keyPairA.getSecretSeed()), server);
 
-        System.out.println(" * * * trustTransactionB * * * ");
+        System.out.println(" * * * Trust transaction B");
         Transaction trustTransactionB = new Transaction.Builder(accountB)
                 .addOperation(new ChangeTrustOperation.Builder(asset, amountB).build())
                 .build();
         trustTransactionB.sign(keyPairB);
-        System.out.println("Trust transaction B: " + server.submitTransaction(trustTransactionB).isSuccess());
+        System.out.println("Trust transaction B submit is SUCCESS: " + server.submitTransaction(trustTransactionB).isSuccess());
         printAccountInfo(new String(keyPairB.getSecretSeed()), server);
 
-        System.out.println(" * * * sendInvestmentB * * * ");
+        System.out.println(" * * * Send investment B");
         Transaction sendInvestmentB = new Transaction.Builder(accountB)
                 .addOperation(new ManageOfferOperation.Builder(new AssetTypeNative(), asset, amountB, "1")
                         .setOfferId(0)
                         .build())
                 .build();
         sendInvestmentB.sign(keyPairB);
-        System.out.println("Send investment B submit: " + server.submitTransaction(sendInvestmentB).isSuccess());
+        System.out.println("Send investment B submit is SUCCESS: " + server.submitTransaction(sendInvestmentB).isSuccess());
         printAccountInfo(new String(keyPairB.getSecretSeed()), server);
+    }
+
+    private static Transaction paymentToTarget(Server server, KeyPair keyPairH, KeyPair keyPairA, KeyPair keyPairB, KeyPair keyPairT, String amountV) throws IOException {
+        AccountResponse accountH = server.accounts().account(keyPairH);
+        System.out.println("\n * * * T 4 (sign) * * * H SN - " + accountH.getSequenceNumber());
+        Transaction sendAssetV = new Transaction.Builder(accountH)
+                .addOperation(new PaymentOperation.Builder(keyPairT, new AssetTypeNative(), amountV).build())
+                //.addTimeBounds(new TimeBounds(10, 120))
+                .build();
+        sendAssetV.sign(keyPairA);
+        sendAssetV.sign(keyPairB);
+        return sendAssetV;
+    }
+
+    private static boolean allAssetsSell(Server server, KeyPair keyPair, String assetName) throws IOException {
+        System.out.println(" * * * allAssetsSell * * * ");
+        AccountResponse account = server.accounts().account(keyPair);
+        for (AccountResponse.Balance balance : account.getBalances()) {
+            String code = balance.getAssetCode();
+            String bal = balance.getBalance();
+            if (code.equals(assetName)) {
+                if (bal.equals("0.0000000")) {
+                    return true;
+                } else {
+                    break;
+                }
+            }
+        }
+        return false;
+    }
+
+    private static Transaction offerCancelAndReturn(BufferedReader reader, Server server, Asset asset, KeyPair keyPairH, KeyPair keyPairA, KeyPair keyPairB, String amountA, String amountB) throws IOException {
+        AccountResponse accountH = server.accounts().account(keyPairH);
+        System.out.println("\n * * * T 5 (sign): offerCancel & offerReturn * * * H SN: " + accountH.getSequenceNumber());
+        System.out.println(" * * * Enter offer operation id to cancel:");
+        printOffersId(new String(keyPairH.getSecretSeed()), server);
+        ManageOfferOperation offerCancelOperation = new ManageOfferOperation.Builder(asset, new AssetTypeNative(), "0", "1")
+                .setOfferId(Long.parseLong(reader.readLine()))
+                .build();
+        String returnAmount = Integer.parseInt(amountA) + Integer.parseInt(amountB) + "";
+        ManageOfferOperation offerReturnOperation = new ManageOfferOperation.Builder(new AssetTypeNative(), asset, returnAmount, "1")
+                .setOfferId(0)
+                .build();
+        Transaction offerCancelAndReturn = new Transaction.Builder(accountH)
+                .addOperation(offerCancelOperation)
+                .addOperation(offerReturnOperation)
+                //.addTimeBounds(new TimeBounds(10, 120))
+                .build();
+        offerCancelAndReturn.sign(keyPairA);
+        offerCancelAndReturn.sign(keyPairB);
+        return offerCancelAndReturn;
+    }
+    private static void returnInvestments(Server server, Asset asset, KeyPair keyPairA, KeyPair keyPairB, String amountA, String amountB) throws IOException {
+        //returnInvestmentA
+        AccountResponse accountA = server.accounts().account(keyPairA);
+        AccountResponse accountB = server.accounts().account(keyPairB);
+        Transaction returnInvestmentA = new Transaction.Builder(accountA)
+                .addOperation(new ManageOfferOperation.Builder(asset, new AssetTypeNative(), amountA, "1")
+                        .setOfferId(0)
+                        .build())
+                .build();
+        returnInvestmentA.sign(keyPairA);
+        System.out.println("Offer return investment A submit is SUCCESS: " + server.submitTransaction(returnInvestmentA).isSuccess() +
+                "; SequenceNumber: " + returnInvestmentA.getSequenceNumber());
+
+        //returnInvestmentB
+        Transaction returnInvestmentB = new Transaction.Builder(accountB)
+                .addOperation(new ManageOfferOperation.Builder(asset, new AssetTypeNative(), amountB, "1")
+                        .setOfferId(0)
+                        .build())
+                .build();
+        returnInvestmentB.sign(keyPairB);
+        System.out.println("Offer return investment B submit is SUCCESS: " + server.submitTransaction(returnInvestmentB).isSuccess() +
+                "; SequenceNumber: " + returnInvestmentB.getSequenceNumber());
+
+    }
+
+    private static void crowdfundingSSC(BufferedReader reader, Server server) throws IOException, InterruptedException {
+        System.out.println(" * * * CROWDFUNDING SSC * * * ");
+        String amountV = "10";
+        String amountA = "5";
+        String amountB = "4";
+
+        System.out.println("Enter secret seed of party A account:");
+        KeyPair keyPairA = KeyPair.fromSecretSeed(reader.readLine());
+        AccountResponse accountA = server.accounts().account(keyPairA);
+        printAccountInfo(new String(keyPairA.getSecretSeed()), server);
+
+        System.out.println("Enter secret seed of party B account:");
+        KeyPair keyPairB = KeyPair.fromSecretSeed(reader.readLine());
+        AccountResponse accountB = server.accounts().account(keyPairB);
+        printAccountInfo(new String(keyPairB.getSecretSeed()), server);
+
+        System.out.println("Enter secret seed of TARGET account:");
+        KeyPair keyPairT = KeyPair.fromSecretSeed(reader.readLine());
+        printAccountInfo(new String(keyPairT.getSecretSeed()), server);
+
+        //T1
+        KeyPair keyPairH = createHoldingAccount(server, accountA, keyPairA);
+        AccountResponse accountH = server.accounts().account(keyPairH);
+
+        //T2
+        addSigners(server, accountH, keyPairH, keyPairA, keyPairB);
+
+        //T2+
+        System.out.println("Enter asset NAME: ");
+        String assetName = reader.readLine();
+        Asset asset = issuingAsset(assetName, server, keyPairA, keyPairB, keyPairH, amountV);
+
+
+        //T3 - sell offer
+        offerSell(server, keyPairH, keyPairA, keyPairB, asset, amountV);
+
+        //T4(sign) Send V to Target.
+        Transaction sendAssetV = paymentToTarget(server, keyPairH, keyPairA, keyPairB, keyPairT, amountV);
+
+        //T5(sign) offerCancelAndReturn
+        Transaction offerCancelAndReturn = offerCancelAndReturn(reader, server, asset, keyPairH, keyPairA, keyPairB, amountA, amountB);
+
+        //Investment
+        sendInvestment(server, asset, keyPairA, keyPairB, amountA, amountB);
 
         //Finish
-        if (Integer.parseInt(amountA) + Integer.parseInt(amountB) == 10) {
-            System.out.println("Payment V submit: " + server.submitTransaction(sendAssetV).isSuccess());
-            printAccountInfo(new String(targetKeyPair.getSecretSeed()), server);
+        //T4(submit) Send V to Target.
+        if (allAssetsSell(server, keyPairH, assetName)) {
+            System.out.println("\n * * * Crowdfunding SUCCESS * * * ");
+            System.out.println("SUCCESS V to TARGET: " + server.submitTransaction(sendAssetV).isSuccess());
+            System.out.println("T 4: SN - N+2: " + sendAssetV.getSequenceNumber());
         } else {
-            System.out.println("Offer cancel transaction submit: " + server.submitTransaction(offerCancelTransaction).isSuccess());
-            System.out.println("Offer return A submit: " + server.submitTransaction(offerReturnA).isSuccess());
-            System.out.println("Offer return B submit: " + server.submitTransaction(offerReturnB).isSuccess());
-            printAccountInfo(new String(holdingKeyPair.getSecretSeed()), server);
+            System.out.println("\n * * * Crowdfunding FAILS * * * ");
+            System.out.println("SUCCESS offer cancel and return: " + server.submitTransaction(offerCancelAndReturn).isSuccess() +
+                    "; T 5: SN - N+3: " + offerCancelAndReturn.getSequenceNumber());
+
+            returnInvestments(server, asset, keyPairA, keyPairB, amountA, amountB);
         }
 
-        System.out.println(" * * * Finish * * * ");
-        printAccountInfo(new String(keyPairA.getSecretSeed()), server);
-        printAccountInfo(new String(keyPairB.getSecretSeed()), server);
-        printAccountInfo(new String(holdingKeyPair.getSecretSeed()), server);
-        printAccountInfo(new String(targetKeyPair.getSecretSeed()), server);
 
+        System.out.println("\n * * * Crowdfunding SUCCESS * * * ");
+        System.out.println(" * * * Finish * * * ");
+        System.out.println(" * * * A account * * * ");
+        printAccountInfo(new String(keyPairA.getSecretSeed()), server);
+        System.out.println(" * * * B account * * * ");
+        printAccountInfo(new String(keyPairB.getSecretSeed()), server);
+        System.out.println(" * * * Holding account * * * ");
+        printAccountInfo(new String(keyPairH.getSecretSeed()), server);
+        System.out.println(" * * * Target account * * * ");
+        printAccountInfo(new String(keyPairT.getSecretSeed()), server);
     }
 
     private static void issuingCustomAssets(BufferedReader reader, Server server) throws IOException {
@@ -337,7 +405,9 @@ public class Application {
         AccountResponse distributionAccount = server.accounts().account(distributionKeys);
 
         //Asset creation.
-        Asset asset = Asset.createNonNativeAsset("asset4", issuingKeys);
+        System.out.println("Enter asset NAME:");
+        String assetName = reader.readLine();
+        Asset asset = Asset.createNonNativeAsset(assetName, issuingKeys);
 
         //Transaction 3: Creating Trust
         Transaction trustTransaction = new Transaction.Builder(distributionAccount)
@@ -398,62 +468,6 @@ public class Application {
 
     }
 
-    private static void createSendSSCOperation(BufferedReader reader, Server server) throws IOException {
-        System.out.println(" * * * CREATE SEND OPERATION * * * ");
-
-        Asset asset = assetCreation(reader);
-
-        //Accounts (prepare).
-        System.out.println("Enter secret seed of SOURCE account:");
-        KeyPair sourceKeys = KeyPair.fromSecretSeed(reader.readLine());
-        AccountResponse sourceAccount = server.accounts().account(sourceKeys);
-        printAccountInfo(new String(sourceKeys.getSecretSeed()), server);
-
-        System.out.println("Enter secret seed of RECEIVING account:");
-        KeyPair receivingKeys = KeyPair.fromSecretSeed(reader.readLine());
-        AccountResponse receivingAccount = server.accounts().account(receivingKeys);
-        printAccountInfo(new String(receivingKeys.getSecretSeed()), server);
-
-        //Signers transaction.
-        Transaction transactionSignersSSC = new Transaction.Builder(sourceAccount)
-                .addOperation(new SetOptionsOperation.Builder()
-                        .setSigner(receivingKeys.getXdrSignerKey(), 2).build())
-                .addOperation(new SetOptionsOperation.Builder()
-                        .setMasterKeyWeight(2)
-                        .setLowThreshold(4)
-                        .setMediumThreshold(4)
-                        .setHighThreshold(4)
-                        .build())
-                .build();
-        System.out.println("Operations length: " + transactionSignersSSC.getOperations().length);
-        System.out.println("Before sign Signatures size: " + transactionSignersSSC.getSignatures().size());
-        transactionSignersSSC.sign(sourceKeys);
-        transactionSignersSSC.sign(receivingKeys);
-        System.out.println("After sign Signatures size: " + transactionSignersSSC.getSignatures().size());
-        System.out.println("Sign submit: " + server.submitTransaction(transactionSignersSSC).isSuccess());
-
-        printAccountInfo(new String(sourceKeys.getSecretSeed()), server);
-        printAccountInfo(new String(receivingKeys.getSecretSeed()), server);
-
-        //Payment transaction.
-        System.out.println("Enter sum:");
-        String sum = reader.readLine();
-
-        Transaction transactionSendSSC = new Transaction.Builder(sourceAccount)
-                .addOperation(new PaymentOperation.Builder(receivingKeys, asset, sum).build())
-                .build();
-        System.out.println("Operations length: " + transactionSendSSC.getOperations().length);
-        System.out.println("Before sign Signatures size: " + transactionSendSSC.getSignatures().size());
-        transactionSendSSC.sign(sourceKeys);
-        transactionSendSSC.sign(receivingKeys);
-        System.out.println("After sign Signatures size: " + transactionSendSSC.getSignatures().size());
-        System.out.println("Send submit: " + server.submitTransaction(transactionSendSSC).isSuccess());
-
-        printAccountInfo(new String(sourceKeys.getSecretSeed()), server);
-        printAccountInfo(new String(receivingKeys.getSecretSeed()), server);
-
-    }
-
     private static void sendAsset(BufferedReader reader, Server server) throws IOException {
         Asset asset = assetCreation(reader);
 
@@ -510,7 +524,6 @@ public class Application {
         transaction.sign(sourceKeys);
         System.out.println("Create new account: " + server.submitTransaction(transaction).isSuccess());
         printAccountInfo(new String(destinationKeyPair.getSecretSeed()), server);
-
     }
 
     private static void printAccountInfo(String secretSeed, Server server) throws IOException {
@@ -547,29 +560,29 @@ public class Application {
         List<OfferResponse> list = p.getRecords();
         for (OfferResponse offerResponse : list) {
             System.out.println(String.format(
-                    "   [Offer: Id: %s, Selling: %s, Buying: %s, Amount: %s, Price: %s, PagingToken: %s, Seller: %s]",
+                    "   [Offer: Id: %s, Amount: %s, Price: %s, Seller: %s, Selling: %s, Buying: %s, PagingToken: %s]",
                     offerResponse.getId(),
                     offerResponse.getAmount(),
                     offerResponse.getPrice(),
-                    offerResponse.getSelling(),
-                    offerResponse.getBuying(),
-                    offerResponse.getPagingToken(),
-                    offerResponse.getSeller()));
+                    offerResponse.getSeller(),
+                    offerResponse.getSelling().getType(),
+                    offerResponse.getBuying().getType(),
+                    offerResponse.getPagingToken()));
         }
+        System.out.println("   [Sequence number: " + account.getSequenceNumber() + "]");
 
     }
 
-    private static long getOneOfferId(String secretSeed, Server server) throws IOException {
-        long offerId = 0;
+    private static void printOffersId(String secretSeed, Server server) throws IOException {
         KeyPair offerOwnerKeys = KeyPair.fromSecretSeed(secretSeed);
 
         OffersRequestBuilder offersRequestBuilder = server.offers().forAccount(offerOwnerKeys);
         Page<OfferResponse> p = offersRequestBuilder.execute();
         List<OfferResponse> list = p.getRecords();
         for (OfferResponse offerResponse : list) {
-            offerId = offerResponse.getId();
+            System.out.println("OfferId: " + offerResponse.getId() + " Offer amount: " + offerResponse.getAmount()
+                    + " Offer type: " + offerResponse.getSelling().getType());
         }
-        return offerId;
     }
 
     private static Asset assetCreation(BufferedReader reader) throws IOException {
